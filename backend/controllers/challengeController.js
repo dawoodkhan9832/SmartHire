@@ -1,11 +1,19 @@
 const Challenge = require('../models/Challenge');
 
-// GET all challenges (students see this)
+// GET all challenges for students (no test cases)
 const getChallenges = async (req, res) => {
   try {
-    // Hide test cases from students
-    const challenges = await Challenge.find()
-      .select('-testCases');
+    const challenges = await Challenge.find().select('-testCases');
+    res.status(200).json(challenges);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// GET all challenges for admin (with test cases)
+const getAllChallengesAdmin = async (req, res) => {
+  try {
+    const challenges = await Challenge.find().sort({ createdAt: -1 });
     res.status(200).json(challenges);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -15,12 +23,20 @@ const getChallenges = async (req, res) => {
 // GET single challenge by ID
 const getChallengeById = async (req, res) => {
   try {
-    const challenge = await Challenge.findById(req.params.id)
-      .select('-testCases');
+    const challenge = await Challenge.findById(req.params.id);
     if (!challenge) {
       return res.status(404).json({ message: 'Challenge not found' });
     }
-    res.status(200).json(challenge);
+    const challengeData = {
+      _id: challenge._id,
+      title: challenge.title,
+      description: challenge.description,
+      difficulty: challenge.difficulty,
+      maxScore: challenge.maxScore,
+      exampleInput: challenge.testCases[0]?.input || 'See description',
+      exampleOutput: challenge.testCases[0]?.output || 'See description',
+    };
+    res.status(200).json(challengeData);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -30,19 +46,13 @@ const getChallengeById = async (req, res) => {
 const createChallenge = async (req, res) => {
   try {
     const { title, description, difficulty, maxScore, testCases } = req.body;
-
     const challenge = await Challenge.create({
-      title,
-      description,
-      difficulty,
-      maxScore,
-      testCases,
+      title, description, difficulty, maxScore, testCases,
       createdBy: req.user.id
     });
-
-    res.status(201).json({ 
-      message: 'Challenge created successfully', 
-      challenge 
+    res.status(201).json({
+      message: 'Challenge created successfully',
+      challenge
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -53,9 +63,7 @@ const createChallenge = async (req, res) => {
 const updateChallenge = async (req, res) => {
   try {
     const challenge = await Challenge.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
+      req.params.id, req.body, { new: true }
     );
     if (!challenge) {
       return res.status(404).json({ message: 'Challenge not found' });
@@ -79,10 +87,11 @@ const deleteChallenge = async (req, res) => {
   }
 };
 
-module.exports = { 
-  getChallenges, 
-  getChallengeById, 
-  createChallenge, 
-  updateChallenge, 
-  deleteChallenge 
+module.exports = {
+  getChallenges,
+  getAllChallengesAdmin,
+  getChallengeById,
+  createChallenge,
+  updateChallenge,
+  deleteChallenge
 };

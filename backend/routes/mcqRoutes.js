@@ -1,23 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const { 
-  getMCQs, 
-  createMCQ, 
-  submitQuiz, 
-  deleteMCQ 
+const {
+  getMCQs,
+  getAllMCQsAdmin,
+  createMCQ,
+  submitQuiz,
+  deleteMCQ,
+  updateMCQ
 } = require('../controllers/mcqController');
 const { protect } = require('../middleware/authMiddleware');
 
-// Get all MCQs (students)
 router.get('/', protect, getMCQs);
-
-// Create MCQ (admin)
-router.post('/', protect, createMCQ);
-
-// Submit quiz answers
+router.get('/admin/all', protect, getAllMCQsAdmin);
 router.post('/submit', protect, submitQuiz);
-
-// Delete MCQ (admin)
+router.post('/', protect, createMCQ);
 router.delete('/:id', protect, deleteMCQ);
+router.put('/:id', protect, updateMCQ);
 
 module.exports = router;
