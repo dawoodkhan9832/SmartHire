@@ -1,12 +1,13 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const Submission = require('../models/Submission');
 const Challenge = require('../models/Challenge');
 const User = require('../models/User');
 
 const runCode = (code, language, input) => {
-  // Clean input — remove surrounding quotes
+  // Clean input
   let cleanInput = String(input).trim();
   if (
     (cleanInput.startsWith('"') && cleanInput.endsWith('"')) ||
@@ -15,9 +16,8 @@ const runCode = (code, language, input) => {
     cleanInput = cleanInput.slice(1, -1);
   }
 
+  // ── JAVASCRIPT ──
   if (language === 'javascript') {
-    // Run JavaScript using Node.js vm
-    const vm = require('vm');
     const fullCode = `
 const input = ${JSON.stringify(cleanInput)};
 ${code}
@@ -26,33 +26,91 @@ result;
 `;
     const result = vm.runInNewContext(fullCode, {}, { timeout: 5000 });
     return String(result).trim();
+  }
 
-  } else if (language === 'python') {
-    // Run Python using child_process
+  // ── PYTHON ──
+  if (language === 'python') {
     const fullCode = `
 input_val = ${JSON.stringify(cleanInput)}
 ${code}
 result = solve(input_val)
 print(result, end='')
 `;
-    // Write temp file
     const tmpFile = path.join(__dirname, `temp_${Date.now()}.py`);
     fs.writeFileSync(tmpFile, fullCode);
-
     try {
-      const output = execSync(`python "${tmpFile}"`, { 
-  timeout: 5000,
-  windowsHide: true 
-}).toString().trim();
-      fs.unlinkSync(tmpFile); // delete temp file
+      const output = execSync(`python "${tmpFile}"`, {
+        timeout: 5000, windowsHide: true
+      }).toString().trim();
+      fs.unlinkSync(tmpFile);
       return output;
     } catch (err) {
-      fs.unlinkSync(tmpFile); // delete temp file even on error
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
       throw new Error(err.stderr?.toString() || err.message);
     }
   }
 
-  return '';
+  // ── JAVA ──
+  if (language === 'java') {
+    const fullCode = `
+public class Main {
+  ${code}
+  public static void main(String[] args) {
+    String input = ${JSON.stringify(cleanInput)};
+    System.out.print(solve(input));
+  }
+}
+`;
+    const tmpDir = path.join(__dirname, `java_${Date.now()}`);
+    fs.mkdirSync(tmpDir);
+    const tmpFile = path.join(tmpDir, 'Main.java');
+    fs.writeFileSync(tmpFile, fullCode);
+    try {
+      execSync(`javac "${tmpFile}"`, { timeout: 10000, windowsHide: true });
+      const output = execSync(`java -cp "${tmpDir}" Main`, {
+        timeout: 5000, windowsHide: true
+      }).toString().trim();
+      fs.rmSync(tmpDir, { recursive: true });
+      return output;
+    } catch (err) {
+      if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
+      throw new Error(err.stderr?.toString() || err.message);
+    }
+  }
+
+  // ── C++ ──
+  if (language === 'cpp') {
+    const fullCode = `
+#include <bits/stdc++.h>
+using namespace std;
+${code}
+int main() {
+  string input = ${JSON.stringify(cleanInput)};
+  cout << solve(input);
+  return 0;
+}
+`;
+    const tmpFile = path.join(__dirname, `temp_${Date.now()}.cpp`);
+    const outFile = path.join(__dirname, `temp_${Date.now()}.exe`);
+    fs.writeFileSync(tmpFile, fullCode);
+    try {
+      execSync(`g++ "${tmpFile}" -o "${outFile}"`, {
+        timeout: 10000, windowsHide: true
+      });
+      const output = execSync(`"${outFile}"`, {
+        timeout: 5000, windowsHide: true
+      }).toString().trim();
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+      if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
+      return output;
+    } catch (err) {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+      if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
+      throw new Error(err.stderr?.toString() || err.message);
+    }
+  }
+
+  throw new Error(`Language ${language} not supported`);
 };
 
 const submitCode = async (req, res) => {
@@ -73,7 +131,6 @@ const submitCode = async (req, res) => {
     for (const testCase of testCases) {
       try {
         const output = runCode(code, language, testCase.input);
-
         let expected = String(testCase.output).trim();
         if (
           (expected.startsWith('"') && expected.endsWith('"')) ||
@@ -90,12 +147,9 @@ const submitCode = async (req, res) => {
 
         const passed = output === expected;
         if (passed) passedTests++;
-
         testResults.push({
           input: testCase.input,
-          expected,
-          got: output,
-          passed
+          expected, got: output, passed
         });
       } catch (err) {
         console.log('Test error:', err.message);
@@ -132,11 +186,7 @@ const submitCode = async (req, res) => {
 
     res.status(201).json({
       message: 'Code submitted successfully',
-      result: {
-        passedTests, totalTests, score, status,
-        executionTime: submission.executionTime,
-        testResults
-      }
+      result: { passedTests, totalTests, score, status, executionTime: submission.executionTime, testResults }
     });
 
   } catch (error) {
